@@ -1,6 +1,6 @@
 ---
 title: '8\. Worksheet: Among Site (Beta) Diversity -- Part 1'
-author: "Student Name; Z620: Quantitative Biodiversity, Indiana University"
+author: "Caroline Edwards; Z620: Quantitative Biodiversity, Indiana University"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: pdf_document
 geometry: margin=2.54cm
@@ -49,10 +49,16 @@ In the R code chunk below, provide the code to:
 4. load the `vegan` R package (be sure to install if needed).  
 
 ```{r}
-
-
-
-
+rm(list=ls())
+getwd()
+setwd("~/quant_bio/GitHub/QB2021_Edwards/2.Worksheets/8.BetaDiversity/")
+package.list<-c('vegan','ade4','viridis','gplots','BiodiversityR','indicspecies','mobsim')
+for (package in package.list){
+  if (!require(package, character.only = TRUE, quietly =TRUE)){
+    install.packages(package)
+    library(package, character.only = TRUE)
+  }
+}
 ```
 
 ## 2) LOADING DATA
@@ -64,9 +70,8 @@ In the R code chunk below, do the following:
 
 ```{r}
 # note, pleae do not print the dataset when submitting
-
-
-
+data(doubs)
+#print(doubs$env)
 ```
 
 ***Question 1***:  Describe some of the attributes of the `doubs` dataset.  
@@ -75,9 +80,9 @@ a.  How many objects are in `doubs`?
 b.  How many fish species are there in the `doubs` dataset?
 c.  How many sites are in the `doubs` dataset?
 
-> ***Answer 1a***:  
-> ***Answer 1b***:  
-> ***Answer 1c***:  
+> ***Answer 1a***:  There are four lists in 'doubs'.
+> ***Answer 1b***:  27 species
+> ***Answer 1c***:  30 sites
 
 ### Visualizing the Doubs River Dataset
 
@@ -87,9 +92,9 @@ a.  How does fish richness vary along the sampled reach of the Doubs River?
 b.  How does Brown Trout (*Salmo trutta*) abundance vary along the sampled reach of the Doubs River?
 c.  What do these patterns say about the limitations of using richness when examining patterns of biodiversity?
 
-> ***Answer 2a***:  
-> ***Answer 2b***:  
-> ***Answer 2c***:  
+> ***Answer 2a***:  The fish richness seems overall lower in the upstream samples compared to the downstream samples.
+> ***Answer 2b***:  The Brown Trout abundance is low in the downstream samples, and higher in the upstream samples.
+> ***Answer 2c***:  This example shows that richness is limited when looking at biodiversity, because while the species richness increased downstream, the abundance of the brown trout decreased, so species richness by itself isn't telling the whole story.
 
 ## 3) QUANTIFYING BETA-DIVERSITY
 
@@ -99,15 +104,33 @@ In the R code chunk below, do the following:
 2. use this function to analyze various aspects of $\beta$-diversity in the Doubs River.  
 
 ```{r}
+beta.w<-function(site.by.species="", sitenum1="", sitenum2="", pairwise= FALSE){
+  if (pairwise == TRUE){
+    if (sitenum1 == ""|sitenum2 == ""){
+      print("Error: please specify sites to compare")
+      return(NA)}
+    site1 = site.by.species[sitenum1,]
+    site2 = site.by.species[sitenum2,]
+    site1 = subset(site1, select = site1>0)
+    site2 = subset(site2, select = site2>0)
+    gamma = union(colnames(site1), colnames(site2))
+    s = length(gamma)
+    a.bar = mean(c(specnumber(site1), specnumber(site2)))
+    b.w = round(s/a.bar - 1, 3)
+    return(b.w)
+  }
+  else{
+    SbyS.pa<-decostand(site.by.species, method = "pa")
+    S<-ncol(SbyS.pa[,which(colSums(SbyS.pa)>0)])
+    a.bar<-mean(specnumber(SbyS.pa))
+    b.w<-round(S/a.bar,3)
+    return(b.w)  
+  }
+}
 
-
-
-
-
-
-
-
-
+beta.w(site.by.species = doubs$fish, sitenum1 = 1 ,sitenum2 = 2, pairwise = TRUE)
+beta.w(site.by.species = doubs$fish, sitenum1 = 1 ,sitenum2 = 10, pairwise = TRUE)
+beta.w(doubs$fish)
 
 ```
 
@@ -117,16 +140,16 @@ a.  Describe how local richness ($\alpha$) and turnover ($\beta$) contribute to 
 b.  Is the fish assemblage at site 1 more similar to the one at site 2 or site 10?
 c.  Using your understanding of the equation $\beta_{w} = \gamma/\alpha$, how would your interpretation of $\beta$ change if we instead defined beta additively (i.e., $\beta = \gamma - \alpha$)?
 
-> ***Answer 3a***:  
-> ***Answer 3b***:  
-> ***Answer 3c***:  
+> ***Answer 3a***: Local richness and turnover both go into regional fish diversity, with local richness providing information about how many species are present at each site and turnover providing information about how species change from one site to the next.
+> ***Answer 3b***: Fish assemblage at site 1 is more similar to the one at site 2 than site 10.
+> ***Answer 3c***: There is a multiplicative relationship between local (alpha) and regional (gamma) diversity, which quantifies how many more times diverse the regional pool is compared to the average alpha diversity at the sites. If beta diversity was defined additively, then that would mean beta diversity would just quantify the difference between the average alpha diversity and the regional diversity, which I think would undervalue the amount of alpha diversity.
 
 ### The Resemblance Matrix
 In order to quantify $\beta$-diversity for more than two samples, we need to introduce a new primary ecological data structure: the **Resemblance Matrix**. 
 
 ***Question 4***: How do incidence- and abundance-based metrics differ in their treatment of rare species?
 
-> ***Answer 4***:  
+> ***Answer 4***: Incidence-based metrics are only using presence-absence data, so they don't take into account whether a species is rare at any particular site, but whether that species is shared between sites or not. Abundance-based metrics use abundance data, so information about species that are rare at sites is accounted for, not just rare in terms of which sites it is at.
 
 In the R code chunk below, do the following:  
 
@@ -136,14 +159,16 @@ In the R code chunk below, do the following:
 4. construct a resemblance matrix based on Bray-Curtis Distance ("fish.db").  
 
 ```{r}
+fish<-doubs$fish
+fish<-fish[-8,]
+fish.dj<-vegdist(fish, method = "jaccard", binary = TRUE)
+fish.db<-vegdist(fish, method = "bray", diag = TRUE)
+fish.ds<-vegdist(fish, method = "bray", binary = TRUE, diag = TRUE)
 
-
-
-
-
-
-
-
+#print(fish.db)
+#print(fish.ds)
+#fish.compare<-fish.db-fish.ds
+#print(fish.compare)
 ```
 
 ***Question 5***: Using the distance matrices from above, answer the following questions:
@@ -151,8 +176,8 @@ In the R code chunk below, do the following:
 a. Does the resemblance matrix (`fish.db`) represent similarity or dissimilarity? What information in the resemblance matrix led you to arrive at your answer? 
 b. Compare the resemblance matrices (`fish.db` or `fish.ds`) you just created. How does the choice of the Sørensen or Bray-Curtis distance influence your interpretation of site (dis)similarity?
 
-> ***Answer 5a***:  
-> ***Answer 5b***:
+> ***Answer 5a***: The resemblance matrix represents dissimilarity, because a value of 1 means that the two sites do not share any species. If you print the diagonal in the resemblance matrix, it is all zeros, so you know that 0 means completely identical.
+> ***Answer 5b***: It seems like the difference between the two usually changes the beta diversity value between 0 and 0.1. The biggest difference seems to happen when the bray-curtis dissimiliarity value is around 0.5. The Sorensen distances only use presence-absence, so there is more emphasis on the similarity of samples owing to shared sites, whereas the bray-curtis uses abundance data to determine pairwise differences.
 
 ## 4) VISUALIZING BETA-DIVERSITY
 
@@ -165,16 +190,9 @@ In the R code chunk below, do the following:
 3. use the `levelplot()` function to create a heatmap of fish abundances in the Doubs River.
 
 ```{r}
-
-
-
-
-
-
-
-
-
-
+order<-rev(attr(fish.db,"Labels"))
+levelplot(as.matrix(fish.db)[, order], aspect = "iso", col.regions = inferno, xlab = "Double Site",
+          ylab = "Double site", scales = list(cex = 0.5), main = "Bray-Curtis Distance")
 ```
 
 ### B.  Cluster Analysis
@@ -185,20 +203,18 @@ In the R code chunk below, do the following:
 2. plot your cluster analysis (use either `hclust` or `heatmap.2`). 
 
 ```{r} 
+fish.ward<-hclust(fish.db, method="ward.D2")
+par(mar = c(1,5,2,2)+0.1)
+plot(fish.ward, main = "Doubs River Fish: Ward's Clustering", ylab = "Squared Bray-Curtis Distance")
 
-
-
-
-
-
-
-
-
+gplots::heatmap.2(as.matrix(fish), distfun = function(x) vegdist(x,method ="bray"),
+                  hclustfun = function(x) hclust (x, method = "ward.D2"), 
+                  col = viridis, trace = "none", density.info = "none")
 ```
 
 ***Question 6***: Based on cluster analyses and the introductory plots that we generated after loading the data, develop an ecological hypothesis for fish diversity the `doubs` data set? 
 
-> ***Answer 6***: 
+> ***Answer 6***: The fish diversity is related to location of how upstream or downstream the site is on the river, and specifically that some species of fish are more abundant upstream with others abundant downstream. There is some ecological factor that is driving the difference in diversity of fish in upstream and downstream sites which could be based on habitat differences that affect preferred food sources or effects of human presence.
 
 ### C.  Ordination
 
@@ -213,15 +229,35 @@ In the R code chunk below, do the following:
 5. identify influential species and add species coordinates to PCoA plot.
 
 ```{r}
+fish.pcoa<- cmdscale(fish.db, eig=TRUE, k=3)
+explainvar1<-round(fish.pcoa$eig[1]/sum(fish.pcoa$eig),3)*100
+explainvar2<-round(fish.pcoa$eig[2]/sum(fish.pcoa$eig),3)*100
+explainvar3<-round(fish.pcoa$eig[3]/sum(fish.pcoa$eig),3)*100
+sum.eig<-sum(explainvar1, explainvar2, explainvar3)
 
+par(mar = c(5,5,1,2)+0.1)
+plot(fish.pcoa$point[,1], fish.pcoa$points[,2], ylim = c(-0.2,0.7),
+     xlab=paste("PCoA 1 (", explainvar1, "%)", sep = ""),
+     ylab=paste("PCoA 2 (", explainvar2, "%)", sep = ""),
+     pch=16, cex=2.0, type="n", cex.lab=1.5, cex.axis=1.2, axes=FALSE)
+axis(side=1, labels=T, lwd.ticks = 2, cex.axis=1.2, las=1)
+axis(side=2, labels=T, lwd.ticks = 2, cex.axis=1.2, las=1)
+abline(h=0, v=0, lty=3)
+box(lwd=2)
 
+points(fish.pcoa$points[,1], fish.pcoa$points[,2],
+       pch=19, cex=3, bg="gray", col="gray")
+text(fish.pcoa$points[,1], fish.pcoa$points[,2],
+     labels = row.names(fish.pcoa$points))
 
+fishREL<- fish
+  for(i in 1:nrow(fish)){
+    fishREL[i,]=fish[i,]/sum(fish[i,])
+  }
 
-
-
-
-
-
+fish.pcoa<-add.spec.scores(fish.pcoa, fishREL, method="pcoa.scores")
+text(fish.pcoa$cproj[,1], fish.pcoa$cproj[,2],
+     labels=row.names(fish.pcoa$cproj), col="black")
 ```
 
 In the R code chunk below, do the following:  
@@ -230,12 +266,12 @@ In the R code chunk below, do the following:
 2. use a permutation test (999 permutations) to test the correlations of each species along each axis.
 
 ```{r}
+spe.corr<-add.spec.scores(fish.pcoa, fishREL, method="cor.scores")$cproj
+corrcut<-0.7
+imp.spp<-spe.corr[abs(spe.corr[,1]) >= corrcut|abs(spe.corr[,2]) >= corrcut, ]
 
-
-
-
-
-
+fit<-envfit(fish.pcoa, fishREL, perm = 999)
+#print(fit)
 ```
 
 ***Question 7***: Address the following questions about the ordination results of the `doubs` data set:
@@ -243,8 +279,8 @@ In the R code chunk below, do the following:
 a.  Describe the grouping of sites in the Doubs River based on fish community composition.
 b.  Generate a hypothesis about which fish species are potential indicators of river quality.
 
-> ***Answer 7a***:  
-> ***Answer 7b***:   
+> ***Answer 7a***: The Doubs River sites are mostly grouped by site number (which is determined by geographic location along the river). The first axis explains ~55% of the variation in the data, so the primary variable driving the grouping of sites based on fish community composition is how far upstream or downstream the site is. The second axis is maybe separating sites based mostly on the abundance of the species "Alal", and to a lesser extent "Lece" and "Ruru".
+> ***Answer 7b***: The species "Satr" could be an indicator of river quality because it is associated with the lowered numbered sites, so the downstream sites, but from the envfit analysis, the "Alal" and "Rham" species both have R^2>0.8, so their presence explains a lot of the variation.
 
 
 ## SYNTHESIS
@@ -252,10 +288,52 @@ b.  Generate a hypothesis about which fish species are potential indicators of r
 Using the `mobsim` package from the DataWrangling module last week, simulate two local communities each containing 1000 individuals (*N*) and 25 species (*S*), but with one having a random spatial distribution and the other having a patchy spatial distribution. 
 Take ten (10) subsamples from each site using the quadrat function and answer the following questions:
 
+```{r}
+com_random <- sim_poisson_community(s_pool = 25, n_sim = 1000, sad_type = "lnorm", 
+        sad_coef = list("meanlog" = 2, "sdlog" = 1))
+#plot(com_random)
+com_random_quads <- sample_quadrats(com_random, n_quadrats = 10, quadrat_area = 0.01, 
+             method = "random", avoid_overlap = T)  
+
+com_patchy <- sim_thomas_community(s_pool = 25, n_sim = 1000, sad_type = "lnorm", 
+        sad_coef = list("meanlog" = 2, "sdlog" = 1))
+#plot(com_patchy)
+com_patchy_quads <- sample_quadrats(com_patchy, n_quadrats = 10, quadrat_area = 0.01, 
+             method = "random", avoid_overlap = T)  
+
+```
 
 1) Compare the average pairwise similarity among subsamples in site 1 (random spatial distribution) to the average pairswise similarity among subsamples in site 2 (patchy spatial distribution). 
 Use a t-test to determine whether compositional similarity was affected by the spatial distribution. 
 Finally, compare the compositional similarity of site 1 and site 2 to the source community?
 
+>Yes, compositional similarity is affected by the spatial distribution. 
+
+```{r}
+random_beta<-vegdist(com_random_quads$spec_dat, method = "bray")
+patchy_beta<-vegdist(com_patchy_quads$spec_dat, method = "bray")
+print(random_beta)
+print(patchy_beta)
+t.test(random_beta, patchy_beta)
+
+```
+
+
 2) Create a cluster diagram or ordination using your simulated data. 
 Are there any visual trends that would suggest a difference in composition between site 1 and site 2? Describe.
+> This cluster diagram shows that the compositions between site 1 (random) and site 2 (patchy) have very different compositions and group together mostly (7 out of 10 for each site), even though they were simulated from the same distribution. There are a few sites from each community that group together, but most group based on whether they are from a patchy or randomly distributed community.
+
+```{r}
+random_sites<-(com_random_quads$spec_dat)
+rownames(random_sites)<-c("R1","R2","R3","R4","R5","R6","R7","R8","R9","R10")
+patchy_sites<-(com_patchy_quads$spec_dat)
+rownames(patchy_sites)<-c("P1","P2","P3","P4","P5","P6","P7","P8","P9","P10")
+all_sites<-rbind(random_sites,patchy_sites)
+
+all.db<-vegdist(all_sites, method = "bray")
+all.ward<-hclust(all.db, method="ward.D2")
+par(mar = c(1,5,2,2)+0.1)
+plot(all.ward, main = "Randomly distributed community: Ward's clustering", ylab = "Squared Bray-Curtis Distance")
+
+```
+
