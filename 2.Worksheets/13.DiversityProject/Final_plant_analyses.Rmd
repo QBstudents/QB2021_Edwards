@@ -1,0 +1,346 @@
+---
+title: "Final_plant_analyses"
+author: "Caroline Edwards"
+date: "5/7/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+rm(list=ls()) #clear your working directory
+setwd("~/quant_bio/GitHub/QB2021_Edwards/2.Worksheets/13.DiversityProject/")
+
+package.list<-c('vegan','ade4','viridis','gplots','BiodiversityR','indicspecies','mobsim')
+for (package in package.list){
+  if (!require(package, character.only = TRUE, quietly =TRUE)){
+    install.packages(package)
+    library(package, character.only = TRUE)
+  }
+}
+```
+
+```{r}
+#Clustering analyses
+#Make site by species matrix for plant species
+veg_sxs<-read.csv("veg_data.csv")
+rownames(veg_sxs)<-(veg_sxs[,1])
+veg_sxs<-veg_sxs[1:47,-1]
+veg_sxs<-as.data.frame(t(veg_sxs))
+
+#Make a heatmap between all sites using species relative abundances using bray-curtis distance
+veg.db<-vegdist(veg_sxs, method = "bray")
+
+order<-rev(attr(veg.db,"Labels"))
+levelplot(as.matrix(veg.db)[, order], aspect = "iso", col.regions = inferno, xlab = "Double Site",
+          ylab = "Double site", scales = list(cex = 0.5), main = "Bray-Curtis Distance")
+
+#Make a cluster analysis for all sites using species relative abundances using bray-curtis distance
+veg.ward<-hclust(veg.db, method="ward.D2")
+par(mar = c(1,5,2,2)+0.1)
+plot(veg.ward, main = "Plants on ridge-to-snowbed gradient: Ward's clustering", ylab = "Squared Bray-Curtis Distance")
+```
+
+```{r}
+#Mantel tests for correlation between plant community and fungal community,environmental dissimilarity
+#Read in data and wrangle
+veg<-read.csv("veg_data.csv")
+row.names(veg)<-veg[,1]
+veg<-veg[,-1]
+
+otu_sxs<-read.csv("OTU_table.csv")
+otu_sxs<-t(otu_sxs)
+env_var<-read.delim("variables.txt")
+env_var$site<- c(rep("S1", 5), rep("S2", 5), rep("S3", 5), rep("S4", 5), rep("S5", 5), rep("R1", 5), rep("R2", 5), rep("R3", 5), rep("R4", 5), rep("R5", 5))
+
+otu_names<-read.csv("modified_OTU_table.csv")
+OTU_ID<-otu_names$X.OTU.ID
+colnames(otu_sxs)<-OTU_ID
+
+env_var<-read.delim("variables.txt")
+env_var$site<- c(rep("S1", 5), rep("S2", 5), rep("S3", 5), rep("S4", 5), rep("S5", 5), rep("R1", 5), rep("R2", 5), rep("R3", 5), rep("R4", 5), rep("R5", 5))
+
+#Take mean of all samples of environmental data at each site, so there is only one value per site
+env_P<-tapply(env_var$P, env_var$site, mean)
+env_N<-tapply(env_var$N, env_var$site, mean)
+env_C<-tapply(env_var$C, env_var$site, mean)
+env_V<-c(rep("R", 5), rep("S", 5))
+env<-cbind(env_P,env_N,env_C,env_V)
+colnames(env)<-c("P","N","C","Site_type")
+env<-as.data.frame(env)
+
+#Rarefaction of otu samples
+site_species.r <- rrarefy(otu_sxs, 1000)
+richness <- rowSums((site_species.r > 0) * 1)
+minimum.r <- min(rowSums(site_species.r))
+rarefy <- rarefy(x = site_species.r, sample = minimum.r, se = TRUE)
+
+#Remove samples containing less than 1000 reads (R1.14, R1.55.2, R2.25, S2.78.2)
+df.site_species.r <- as.data.frame(site_species.r)
+rarefied_site_species <- data.frame()
+for (i in 1:nrow(df.site_species.r)){
+  if (rowSums(df.site_species.r[i,]) >= 1000){
+    rarefied_site_species <- rbind(rarefied_site_species, df.site_species.r[i,])
+  }
+}
+otu<-as.data.frame(rarefied_site_species)
+otu_site<-c(rep("S1", 5), rep("S2", 5), rep("S3", 5), rep("S4", 5), rep("S5", 5), rep("R1", 4), rep("R2", 4), rep("R3", 6), rep("R4", 6), rep("R5", 6))
+
+#Add up all samples of fungi data at each site, so there is one total value per site
+otu_total<-matrix(nrow=10,ncol=807)
+colnames(otu_total)<-OTU_ID
+for (i in 1:(ncol(otu))){
+  otu_total[,i]<-tapply(otu[,i], otu_site, sum)
+}
+
+#Mantel test of the correlation between plant and fungal community dissimilarity and also plant and environmental dissimilarity
+env$P<-as.numeric(env$P)
+env$C<-as.numeric(env$C)
+env$N<-as.numeric(env$N)
+
+otu.dist<- vegdist(otu_total, method="bray")
+env.dist<- vegdist(scale(env[,-4]), method="euclid")
+veg.dist<- vegdist(veg_sxs, method = "bray")
+
+mantel(veg.dist, otu.dist)
+mantel(veg.dist, env.dist)
+```
+
+```{r}
+#Indicator species analyses
+#Look at indicator species for the two site types in plants and fungi
+indval_veg<-multipatt(veg_sxs, cluster=c(rep("R", 5), rep("S", 5)), func = "r.g", control=how(nperm=999))
+summary(indval_veg)
+
+indval_otu<-multipatt(otu_total, cluster=c(rep("R", 5), rep("S", 5)), func = "r.g", control=how(nperm=999))
+summary(indval_otu)
+
+site_type<-c(rep("R", 5), rep("S", 5))
+adonis(veg_sxs ~ site_type, method = "bray", permutations = 999)
+
+```
+
+```{r}
+#PCoA of plant communties at each site with plant species mapped on 
+plant.pcoa<- cmdscale(veg.db, eig=TRUE, k=3)
+explainvar1<-round(plant.pcoa$eig[1]/sum(plant.pcoa$eig),3)*100
+explainvar2<-round(plant.pcoa$eig[2]/sum(plant.pcoa$eig),3)*100
+explainvar3<-round(plant.pcoa$eig[3]/sum(plant.pcoa$eig),3)*100
+sum.eig<-sum(explainvar1, explainvar2, explainvar3)
+
+#png("pcoa_plants.png", units="in", width=7, height=5, res = 600)
+
+par(mar = c(5,5,1,2)+0.1)
+plot(plant.pcoa$point[,1], plant.pcoa$points[,2], ylim = c(-0.3,0.7),
+     xlab=paste("PCoA 1 (", explainvar1, "%)", sep = ""),
+     ylab=paste("PCoA 2 (", explainvar2, "%)", sep = ""),
+     pch=16, cex=2.0, type="n", cex.lab=1.5, cex.axis=1.2, axes=FALSE)
+axis(side=1, labels=T, lwd.ticks = 2, cex.axis=1.2, las=1)
+axis(side=2, labels=T, lwd.ticks = 2, cex.axis=1.2, las=1)
+abline(h=0, v=0, lty=3)
+box(lwd=2)
+
+points(plant.pcoa$points[,1], plant.pcoa$points[,2],
+       pch=19, cex=3, bg="gray", col="gray")
+text(plant.pcoa$points[,1], plant.pcoa$points[,2],
+     labels = row.names(plant.pcoa$points))
+
+plantREL<- veg_sxs
+for(i in 1:nrow(veg_sxs)){
+  plantREL[i,]=veg_sxs[i,]/sum(veg_sxs[i,])
+}
+
+plant.pcoa<-add.spec.scores(plant.pcoa, plantREL, method="pcoa.scores")
+text(plant.pcoa$cproj[,1], plant.pcoa$cproj[,2],
+     labels=c(1:47), col="black")
+
+#dev.off()
+```
+
+```{r}
+#PCoA with all the soil environmental variables and site type
+
+veg.db<-vegdist(veg_sxs, method = "bray", diag = TRUE)
+doubs.dbrda<-dbrda(veg.db ~ ., as.data.frame(env))
+ordiplot(doubs.dbrda)
+
+doubs.dbrda.mod0<-dbrda(veg.db~1, as.data.frame(env))
+ordiplot(doubs.dbrda.mod0)
+
+doubs.dbrda.mod1<-dbrda(veg.db~., as.data.frame(env))
+doubs.dbrda<-ordiR2step(doubs.dbrda.mod0, doubs.dbrda.mod1, perm.max=200)
+
+doubs.dbrda$call
+doubs.dbrda$anova
+ordiplot(doubs.dbrda)
+
+permutest(doubs.dbrda, permutations = 999)
+envfit(doubs.dbrda, env, perm=999)
+
+dbrda.explainvar1<-round(doubs.dbrda$CCA$eig[1]/
+                           sum(c(doubs.dbrda$CCA$eig, doubs.dbrda$CA$eig)),3)*100
+dbrda.explainvar2<-round(doubs.dbrda$CCA$eig[2]/
+                           sum(c(doubs.dbrda$CCA$eig, doubs.dbrda$CA$eig)),3)*100
+
+#png("dbRDA_plants_4.png", units="in", width=5, height=5, res = 600)
+
+par(mar=c(5,5,4,4)+0.1)
+
+plot(scores(doubs.dbrda, display="wa"),xlim=c(-1.3,1.1), ylim=c(-1.1,2.7),
+     xlab=paste("dbRDA 1 (", dbrda.explainvar1, "%)", sep=""),
+     ylab=paste("dbRDA 2 (", dbrda.explainvar2, "%)", sep=""),
+     pch=16, cex=2.0, type="n", cex.lab=1.5, cex.axis=1.2, axes=FALSE)
+
+axis(side=1, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+axis(side=2, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+abline(h=0,v=0,lty=3)
+box(lwd=2)
+
+points(scores(doubs.dbrda, display="wa"),
+       pch=19, cex=3, bg="gray", col="gray")
+text(scores(doubs.dbrda, display="wa"),
+     labels=row.names(scores(doubs.dbrda, display="wa")))
+
+vectors<-scores(doubs.dbrda, display = "bp")
+arrows(0,0,vectors[,1], vectors[,2],
+       lwd=2, lty=1, length=0.2, col="red")
+text(vectors[,1], vectors[,2], pos=3,
+     labels=row.names(vectors))
+axis(side=3, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2,
+     at=pretty(range(vectors[,1]))*2, labels = pretty(range(vectors[,1])))
+axis(side=4, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2,
+     at=pretty(range(vectors[,2]))*2, labels = pretty(range(vectors[,2])))
+
+#dev.off()
+```
+
+```{r}
+#PCoA with just the soil environmental variables and not site type
+
+veg.db<-vegdist(veg_sxs, method = "bray", diag = TRUE)
+env_subset<-env[,-4]
+doubs.dbrda<-dbrda(veg.db ~ ., as.data.frame(env_subset))
+ordiplot(doubs.dbrda)
+
+doubs.dbrda.mod0<-dbrda(veg.db~1, as.data.frame(env_subset))
+ordiplot(doubs.dbrda.mod0)
+
+doubs.dbrda.mod1<-dbrda(veg.db~., as.data.frame(env_subset))
+doubs.dbrda<-ordiR2step(doubs.dbrda.mod0, doubs.dbrda.mod1, perm.max=200)
+
+doubs.dbrda$call
+doubs.dbrda$anova
+ordiplot(doubs.dbrda)
+
+permutest(doubs.dbrda, permutations = 999)
+envfit(doubs.dbrda, env_subset, perm=999)
+
+dbrda.explainvar1<-round(doubs.dbrda$CCA$eig[1]/
+                           sum(c(doubs.dbrda$CCA$eig, doubs.dbrda$CA$eig)),3)*100
+dbrda.explainvar2<-round(doubs.dbrda$CCA$eig[2]/
+                           sum(c(doubs.dbrda$CCA$eig, doubs.dbrda$CA$eig)),3)*100
+
+#png("dbRDA_plants_3.png", units="in", width=5, height=5, res = 600)
+par(mar=c(5,5,4,4)+0.1)
+
+plot(scores(doubs.dbrda, display="wa"),xlim=c(-1.3,1.1), ylim=c(-1.1,2.7),
+     xlab=paste("dbRDA 1 (", dbrda.explainvar1, "%)", sep=""),
+     ylab=paste("dbRDA 2 (", dbrda.explainvar2, "%)", sep=""),
+     pch=16, cex=2.0, type="n", cex.lab=1.5, cex.axis=1.2, axes=FALSE)
+
+axis(side=1, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+axis(side=2, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+abline(h=0,v=0,lty=3)
+box(lwd=2)
+
+points(scores(doubs.dbrda, display="wa"),
+       pch=19, cex=3, bg="gray", col="gray")
+text(scores(doubs.dbrda, display="wa"),
+     labels=row.names(scores(doubs.dbrda, display="wa")))
+
+vectors<-scores(doubs.dbrda, display = "bp")
+arrows(0,0,vectors[,1], vectors[,2],
+       lwd=2, lty=1, length=0.2, col="red")
+text(vectors[,1], vectors[,2], pos=3,
+     labels=row.names(vectors))
+axis(side=3, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2,
+     at=pretty(range(vectors[,1]))*2, labels = pretty(range(vectors[,1])))
+axis(side=4, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2,
+     at=pretty(range(vectors[,2]))*2, labels = pretty(range(vectors[,2])))
+
+#dev.off()
+```
+
+```{r}
+#Add OTU and soil environmental variables together as total plant environment matrix
+#Only use OTUs that were highly significant (**) and >0.7 association
+otu_total<-as.data.frame(otu_total)
+
+#For the ridge sites
+env$`667`<-otu_total$`667`
+env$`444`<-otu_total$`444`
+env$`1125`<-otu_total$`1125`
+
+#For the snowbed sites
+env$`848`<-otu_total$`848`
+env$`460`<-otu_total$`460`
+
+#Do PCoA analysis again with new environmental matrix including fungi 
+veg.db<-vegdist(veg_sxs, method = "bray", diag = TRUE)
+doubs.dbrda<-dbrda(veg.db ~ ., as.data.frame(env))
+ordiplot(doubs.dbrda)
+
+doubs.dbrda.mod0<-dbrda(veg.db~1, as.data.frame(env))
+ordiplot(doubs.dbrda.mod0)
+
+#This function is no longer working - the error says it could be due to "fitting too many terms".
+#Before the presentation, it was working fine, so I have included the plot "dbRDA_with_fungi.png" 
+#which is the output from this part that isn't working anymore
+
+# doubs.dbrda.mod1<-dbrda(veg.db~., as.data.frame(env))
+# doubs.dbrda<-ordiR2step(doubs.dbrda.mod0, doubs.dbrda.mod1, perm.max=200)
+# 
+# doubs.dbrda$call
+# doubs.dbrda$anova
+# ordiplot(doubs.dbrda)
+# 
+# permutest(doubs.dbrda, permutations = 999)
+# envfit(doubs.dbrda, env, perm=999)
+# 
+# dbrda.explainvar1<-round(doubs.dbrda$CCA$eig[1]/
+#                            sum(c(doubs.dbrda$CCA$eig, doubs.dbrda$CA$eig)),3)*100
+# dbrda.explainvar2<-round(doubs.dbrda$CCA$eig[2]/
+#                            sum(c(doubs.dbrda$CCA$eig, doubs.dbrda$CA$eig)),3)*100
+# 
+# #png("dbRDA_with_fungi.png", units="in", width=7, height=5, res = 600)
+# 
+# par(mar=c(5,5,4,4)+0.1)
+# 
+# plot(scores(doubs.dbrda, display="wa"),xlim=c(-1.3,1.1), ylim=c(-1.1,2.7),
+#      xlab=paste("dbRDA 1 (", dbrda.explainvar1, "%)", sep=""),
+#      ylab=paste("dbRDA 2 (", dbrda.explainvar2, "%)", sep=""),
+#      pch=16, cex=2.0, type="n", cex.lab=1.5, cex.axis=1.2, axes=FALSE)
+# 
+# axis(side=1, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+# axis(side=2, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+# abline(h=0,v=0,lty=3)
+# box(lwd=2)
+# 
+# points(scores(doubs.dbrda, display="wa"),
+#        pch=19, cex=3, bg="gray", col="gray")
+# text(scores(doubs.dbrda, display="wa"),
+#      labels=row.names(scores(doubs.dbrda, display="wa")))
+# 
+# vectors<-scores(doubs.dbrda, display = "bp")
+# arrows(0,0,vectors[,1], vectors[,2],
+#        lwd=2, lty=1, length=0.2, col="red")
+# text(vectors[,1], vectors[,2], pos=3,
+#      labels=row.names(vectors))
+# axis(side=3, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2,
+#      at=pretty(range(vectors[,1]))*2, labels = pretty(range(vectors[,1])))
+# axis(side=4, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2,
+#      at=pretty(range(vectors[,2]))*2, labels = pretty(range(vectors[,2])))
+#
+#dev.off()
+```
+
